@@ -3,7 +3,10 @@ package main
 import (
 	"fmt"
 	"log"
+	"net"
 	"unsafe"
+
+	"encoding/binary"
 
 	"golang.org/x/sys/unix"
 )
@@ -17,9 +20,10 @@ func main() {
 	params["host.hostname"] = "teste.bla"
 	params["path"] = "/jails/katz"
 	params["persist"] = ""
-	// TODO: IP and int does not work
-	// params["ip4.addr"] = "192.168.0.222"
-	// params["securelevel"] = 3
+	// TODO: IP does not work. jail_set accepts but doesnt sets anything
+	params["ip4.addr"] = "192.168.0.222"
+	params["ip6.addr"] = "fd00:1234:abcd::1"
+	params["securelevel"] = 3
 
 	iov, err := params.buildIovec()
 	if err != nil {
@@ -61,17 +65,28 @@ func (p Params) buildIovec() ([]unix.Iovec, error) {
 		if paramValue != nil {
 			switch v := paramValue.(type) {
 			case string:
-				valBytes, err = unix.ByteSliceFromString(v)
-				if err != nil {
-					return nil, err
+				if paramKey == "ip4.addr" || paramKey == "ip6.addr" {
+					ip := net.ParseIP(v)
+					if ip == nil {
+						return nil, fmt.Errorf("Unparseable IP")
+					}
+					pVal = (*byte)(unsafe.Pointer(&ip[0]))
+					valLen = uint64(len(valBytes))
+				} else {
+					valBytes, err = unix.ByteSliceFromString(v)
+					if err != nil {
+						return nil, err
+					}
+					pVal = (*byte)(unsafe.Pointer(&valBytes[0]))
+					valLen = uint64(len(valBytes))
 				}
-				pVal = (*byte)(unsafe.Pointer(&valBytes[0]))
-				valLen = uint64(len(valBytes))
 			case int:
-				valBytes = IntToByteArray(int64(v))
-				fmt.Printf("%v", valBytes)
-				pVal = (*byte)(unsafe.Pointer(&valBytes[0]))
-				valLen = uint64(len(valBytes))
+				//valBytes = IntToByteArray(int64(v))
+				val := uint32(v)
+				a := make([]byte, 4)
+				binary.BigEndian.PutUint32(a, val)
+				pVal = (*byte)(unsafe.Pointer(&a[0]))
+				valLen = uint64(len(a))
 			}
 
 		}
